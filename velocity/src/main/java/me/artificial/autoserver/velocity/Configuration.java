@@ -101,6 +101,22 @@ public class Configuration {
         return config.getBoolean("checkForUpdates", true);
     }
 
+    public String getNotWhitelistedMessage(String code) {
+        String prefix = config.getString("messages.prefix", "");
+        String message = config.getString("messages.notWhitelisted",
+                "<red>You are not whitelisted!\n\n<yellow>Send this code to our Discord bot:\n<green>!verify %code%");
+        return (prefix + message).replace("%code%", code);
+    }
+
+    public String getBlacklistedMessage(String reason, String expiry) {
+        String prefix = config.getString("messages.prefix", "");
+        String message = config.getString("messages.blacklisted",
+                "<red>You are blacklisted!\n<yellow>Reason: <white>%reason%\n<yellow>Expires: <white>%expiry%");
+        return (prefix + message)
+                .replace("%reason%", reason)
+                .replace("%expiry%", expiry);
+    }
+
     public String getLogLevel() {
         return config.getString("logging.level", "INFO").toUpperCase();
     }

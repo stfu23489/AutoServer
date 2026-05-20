@@ -43,6 +43,8 @@ public class AutoServer {
     private final Set<UUID> internalTransfers = ConcurrentHashMap.newKeySet();
     private ServerManager serverManager;
     private RateLimiter rateLimiter;
+    private Whitelist whitelist;
+    private Blacklist blacklist;
 
     @SuppressWarnings("unused")
     @Inject
@@ -52,6 +54,8 @@ public class AutoServer {
         this.config = new Configuration(dataDirectory);
         this.logger = new AutoServerLogger(this, logger);
         this.pluginContainer = pluginContainer;
+        this.whitelist = new Whitelist(dataDirectory, logger);
+        this.blacklist = new Blacklist(dataDirectory, logger);
     }
 
     @Subscribe
@@ -68,6 +72,25 @@ public class AutoServer {
             throw new RuntimeException("Failed to load config! Stopping plugin initialization.");
         }
         logger.info("Configuration Loaded");
+
+        try {
+            whitelist.load();
+            if (whitelist.isEnabled()) {
+                logger.info("Whitelist is ENABLED");
+            } else {
+                logger.info("Whitelist is DISABLED");
+            }
+        } catch (Exception e) {
+            logger.warn("Failed to load whitelist: {}", e.getMessage());
+        }
+        whitelist.startWatcher();
+
+        try {
+            blacklist.load();
+        } catch (Exception e) {
+            logger.warn("Failed to load blacklist: {}", e.getMessage());
+        }
+        blacklist.startWatcher();
 
         serverManager = new ServerManager(this);
 
@@ -96,7 +119,8 @@ public class AutoServer {
 
     @Subscribe
     public void onProxyShutdown(ProxyShutdownEvent event) {
-        // TODO Maybe shutdown all servers
+        whitelist.stopWatcher();
+        blacklist.stopWatcher();
         logger.info("Successfully disabled AutoServer");
     }
 
@@ -111,6 +135,30 @@ public class AutoServer {
         RegisteredServer previousServer = event.getPreviousServer(); // Server was connected too
         String originalServerName = originalServer.getServerInfo().getName();
         logger.debug("Player {} attempting to join {}", event.getPlayer().getUsername(), originalServerName);
+
+        // Blacklist check - block blacklisted players/IPs
+        Blacklist.BlacklistEntry blacklistEntry = blacklist.getBlacklistEntry(event.getPlayer());
+        if (blacklistEntry != null) {
+            String rawMessage = config.getBlacklistedMessage(blacklistEntry.reason, blacklistEntry.expiryString());
+            event.getPlayer().disconnect(net.kyori.adventure.text.minimessage.MiniMessage.miniMessage().deserialize(rawMessage));
+            logger.info("Blocked blacklisted player {} ({}): reason={} expiry={}",
+                event.getPlayer().getUsername(),
+                event.getPlayer().getRemoteAddress().getAddress().getHostAddress(),
+                blacklistEntry.reason,
+                blacklistEntry.expiryString());
+            return;
+        }
+
+        // Whitelist check - block non-whitelisted players from triggering server start
+        if (whitelist.isEnabled() && !whitelist.isWhitelisted(event.getPlayer())) {
+            String uuid = event.getPlayer().getUniqueId().toString();
+            String username = event.getPlayer().getUsername();
+            String code = String.valueOf((int)(Math.random() * 90000) + 10000);
+            logger.info("VERIFY_REQUEST uuid={} username={} code={}", uuid, username, code);
+            String rawMessage = config.getNotWhitelistedMessage(code);
+            event.getPlayer().disconnect(net.kyori.adventure.text.minimessage.MiniMessage.miniMessage().deserialize(rawMessage));
+            return;
+        }
 
         if (!rateLimiter.canRequest(event.getPlayer())) {
             // exceeded limit
@@ -230,6 +278,14 @@ public class AutoServer {
 
     public ServerManager getServerManager() {
         return serverManager;
+    }
+
+    public Whitelist getWhitelist() {
+        return whitelist;
+    }
+
+    public Blacklist getBlacklist() {
+        return blacklist;
     }
 
     public Optional<String> getVersion() {

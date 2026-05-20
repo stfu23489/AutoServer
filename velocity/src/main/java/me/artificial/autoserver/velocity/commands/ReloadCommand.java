@@ -25,8 +25,10 @@ public class ReloadCommand implements SubCommand {
         plugin.getLogger().info("Reloading configuration...");
         try {
             plugin.getConfig().reloadConfig();
+            plugin.getWhitelist().load();
+            plugin.getBlacklist().load();
             plugin.getLogger().info("Configuration reloaded.");
-            source.sendMessage(Component.text("Configuration reloaded."));
+            source.sendMessage(Component.text("Configuration, whitelist and blacklist reloaded."));
         } catch (Exception e) {
             plugin.getLogger().error("Failed to load config! Fix errors and try again: {}", e.getMessage());
             source.sendMessage(Component.text("Configuration failed to reloaded.").color(NamedTextColor.RED));

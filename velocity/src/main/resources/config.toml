@@ -33,6 +33,15 @@ notify = "Server %serverName% is ready you will be connected in 5 seconds..."
 # %time% will be replaced with the number of seconds remaining.
 startRateLimitExceeded = "Too many requests: You can initiate a new request in %time% seconds."
 
+# Message displayed to the player when they are not whitelisted.
+# %code% will be replaced with the verification code.
+notWhitelisted = "<red>You are not whitelisted!\n\n<yellow>Send this code to our Discord bot:\n<green>!verify %code%"
+
+# Message displayed to the player when they are blacklisted.
+# %reason% will be replaced with the blacklist reason.
+# %expiry% will be replaced with the expiry date or "Never".
+blacklisted = "<red>You are blacklisted!\n<yellow>Reason: <white>%reason%\n<yellow>Expires: <white>%expiry%"
+
 # Define servers here.
 [servers]
 # For each server you want to have managed create a table for it
