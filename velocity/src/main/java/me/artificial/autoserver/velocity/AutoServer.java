@@ -197,51 +197,52 @@ public class AutoServer {
                     String fallbackName = fallback.getServerInfo().getName();
                     logger.info("Redirecting player {} to fallback server {}", event.getPlayer().getUsername(), fallbackName);
 
-                    // start fallback if offline, wait for it to be ready before sending player
-                    serverManager.isServerOnline(fallback).thenAccept(fallbackOnline -> {
-                        if (!fallbackOnline) {
-                            logger.info("Fallback server {} is offline, starting it...", fallbackName);
-                            serverManager.startServer(fallback).thenAccept(result -> {
-                                logger.info("Fallback server {} is ready, connecting player {}", fallbackName, event.getPlayer().getUsername());
-                                if (event.getPlayer().isActive()) {
-                                    this.internalTransfer(event.getPlayer());
-                                    event.getPlayer().createConnectionRequest(fallback).connect();
-                                }
-                            }).exceptionally(ex -> {
-                                logger.error("Failed to start fallback server {}: {}", fallbackName, ex.getMessage());
-                                event.getPlayer().disconnect(Component.text("Failed to start fallback server.").color(NamedTextColor.RED));
-                                return null;
-                            });
-                        } else {
-                            logger.info("Fallback server {} already online, connecting player {}", fallbackName, event.getPlayer().getUsername());
-                            if (event.getPlayer().isActive()) {
-                                this.internalTransfer(event.getPlayer());
-                                event.getPlayer().createConnectionRequest(fallback).connect();
-                            }
-                        }
-                    });
-
-                    // deny the original event - we handle connection manually above
+                    // deny the original event - we handle connection manually
                     event.setResult(ServerPreConnectEvent.ServerResult.denied());
                     Messenger.send(event.getPlayer(), config.getMessage("starting").orElse(""), originalServerName);
 
-                    // queue player for main server and start it
-                    serverManager.queuePlayerForServerJoin(event.getPlayer(), originalServerName);
-                    serverManager.startServer(originalServer).thenAccept(result -> {
-                        // stop fallback if no players remain after transfer
-                        proxy.getScheduler().buildTask(this, () -> {
-                            if (fallback.getPlayersConnected().isEmpty()) {
-                                logger.info("Fallback server {} is empty after transfer, stopping it.", fallbackName);
-                                serverManager.stopServer(fallback).exceptionally(ex -> {
-                                    logger.error("Failed to stop fallback server {}: {}", fallbackName, ex.getMessage());
-                                    return null;
+                    // start fallback if offline, then connect player, then start main server
+                    serverManager.isServerOnline(fallback).thenAccept(fallbackOnline -> {
+                        CompletableFuture<String> fallbackReady;
+                        if (!fallbackOnline) {
+                            logger.info("Fallback server {} is offline, starting it...", fallbackName);
+                            fallbackReady = serverManager.startServer(fallback);
+                        } else {
+                            logger.info("Fallback server {} already online", fallbackName);
+                            fallbackReady = CompletableFuture.completedFuture("already online");
+                        }
+
+                        fallbackReady.thenAccept(result -> {
+                            logger.info("Fallback server {} is ready, connecting player {}", fallbackName, event.getPlayer().getUsername());
+                            if (event.getPlayer().isActive()) {
+                                this.internalTransfer(event.getPlayer());
+                                event.getPlayer().createConnectionRequest(fallback).connect().thenAccept(connResult -> {
+                                    // player is now on limbo - start main server
+                                    logger.info("Player {} connected to limbo, starting main server {}", event.getPlayer().getUsername(), originalServerName);
+                                    serverManager.queuePlayerForServerJoin(event.getPlayer(), originalServerName);
+                                    serverManager.startServer(originalServer).thenAccept(mainResult -> {
+                                        // stop fallback if empty after transfer
+                                        proxy.getScheduler().buildTask(this, () -> {
+                                            if (fallback.getPlayersConnected().isEmpty()) {
+                                                logger.info("Fallback server {} is empty after transfer, stopping it.", fallbackName);
+                                                serverManager.stopServer(fallback).exceptionally(ex -> {
+                                                    logger.error("Failed to stop fallback server {}: {}", fallbackName, ex.getMessage());
+                                                    return null;
+                                                });
+                                            }
+                                        }).delay(10, TimeUnit.SECONDS).schedule();
+                                    }).exceptionally(ex -> {
+                                        Messenger.send(event.getPlayer(), config.getMessage("failed").orElse(""), originalServerName);
+                                        logger.error("Failed to start server {}: {}", originalServerName, ex.getMessage());
+                                        return null;
+                                    });
                                 });
                             }
-                        }).delay(10, TimeUnit.SECONDS).schedule();
-                    }).exceptionally(ex -> {
-                        Messenger.send(event.getPlayer(), config.getMessage("failed").orElse(""), originalServerName);
-                        logger.error("Failed to start server {}: {}", originalServerName, ex.getMessage());
-                        return null;
+                        }).exceptionally(ex -> {
+                            logger.error("Failed to start fallback server {}: {}", fallbackName, ex.getMessage());
+                            event.getPlayer().disconnect(Component.text("Failed to start fallback server.").color(NamedTextColor.RED));
+                            return null;
+                        });
                     });
 
                 } else {
