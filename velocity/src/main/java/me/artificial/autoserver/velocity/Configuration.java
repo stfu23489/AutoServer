@@ -97,6 +97,11 @@ public class Configuration {
         return config.getLong("servers." + server.getServerInfo().getName() + ".autoShutdownDelay", DEFAULT_AUTO_SHUTDOWN_DELAY);
     }
 
+    public Optional<String> getFallbackServer(RegisteredServer server) {
+        String fallback = config.getString("servers." + server.getServerInfo().getName() + ".fallbackServer");
+        return Optional.ofNullable(fallback);
+    }
+
     public boolean checkForUpdate() {
         return config.getBoolean("checkForUpdates", true);
     }

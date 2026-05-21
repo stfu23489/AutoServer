@@ -73,6 +73,11 @@ blacklisted = "<red>You are blacklisted!\n<yellow>Reason: <white>%reason%\n<yell
 # Duration (in seconds) to wait before automatically shutting down the server.
 # Set to 0 to disable automatically shutting down the server.
 #autoShutdownDelay = 1800
+# Name of a fallback server (must match a server in velocity.toml) to send players to while
+# the main server is starting. The fallback server will be started automatically if offline,
+# and stopped automatically once all queued players have been transferred to the main server.
+# The fallback server will NOT be started if the main server is already online.
+#fallbackServer = "limbo"
 
 
 # Example Configuration for a LOCAL server named "survival".

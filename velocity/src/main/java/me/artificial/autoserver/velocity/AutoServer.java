@@ -28,6 +28,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.TimeUnit;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
@@ -185,23 +186,68 @@ public class AutoServer {
             } else {
                 // server not online need to start it
                 logger.info("Server {}{}{} is not online attempting to start server", AnsiColors.RED, originalServerName, AnsiColors.RESET);
-                event.setResult(ServerPreConnectEvent.ServerResult.denied());
 
-                if (previousServer != null) {
+                // check for fallback server
+                Optional<String> fallbackServerName = config.getFallbackServer(originalServer);
+                Optional<RegisteredServer> fallbackServer = fallbackServerName
+                        .flatMap(name -> proxy.getServer(name));
+
+                if (fallbackServer.isPresent()) {
+                    RegisteredServer fallback = fallbackServer.get();
+                    String fallbackName = fallback.getServerInfo().getName();
+                    logger.info("Redirecting player {} to fallback server {}", event.getPlayer().getUsername(), fallbackName);
+
+                    // start fallback if offline
+                    serverManager.isServerOnline(fallback).thenAccept(fallbackOnline -> {
+                        if (!fallbackOnline) {
+                            logger.info("Fallback server {} is offline, starting it...", fallbackName);
+                            serverManager.startServer(fallback).exceptionally(ex -> {
+                                logger.error("Failed to start fallback server {}: {}", fallbackName, ex.getMessage());
+                                return null;
+                            });
+                        }
+                    });
+
+                    // send player to fallback
+                    event.setResult(ServerPreConnectEvent.ServerResult.allowed(fallback));
                     Messenger.send(event.getPlayer(), config.getMessage("starting").orElse(""), originalServerName);
-                }
-                serverManager.queuePlayerForServerJoin(event.getPlayer(), originalServerName);
-                serverManager.startServer(originalServer).exceptionally(ex -> {
-                    // Check if the is already connected to a server
-                    Optional<ServerConnection> playerCurrentServer = event.getPlayer().getCurrentServer();
-                    if (playerCurrentServer.isEmpty()) {
-                        event.getPlayer().disconnect(Component.text("Failed to start server " + originalServerName).color(NamedTextColor.RED));
-                    } else {
-                        // send fail message
+
+                    // queue player for main server and start it
+                    serverManager.queuePlayerForServerJoin(event.getPlayer(), originalServerName);
+                    serverManager.startServer(originalServer).thenAccept(result -> {
+                        // stop fallback if no players remain after transfer
+                        proxy.getScheduler().buildTask(plugin, () -> {
+                            if (fallback.getPlayersConnected().isEmpty()) {
+                                logger.info("Fallback server {} is empty after transfer, stopping it.", fallbackName);
+                                serverManager.stopServer(fallback).exceptionally(ex -> {
+                                    logger.error("Failed to stop fallback server {}: {}", fallbackName, ex.getMessage());
+                                    return null;
+                                });
+                            }
+                        }).delay(10, TimeUnit.SECONDS).schedule();
+                    }).exceptionally(ex -> {
                         Messenger.send(event.getPlayer(), config.getMessage("failed").orElse(""), originalServerName);
+                        logger.error("Failed to start server {}: {}", originalServerName, ex.getMessage());
+                        return null;
+                    });
+
+                } else {
+                    // no fallback server configured
+                    event.setResult(ServerPreConnectEvent.ServerResult.denied());
+                    if (previousServer != null) {
+                        Messenger.send(event.getPlayer(), config.getMessage("starting").orElse(""), originalServerName);
                     }
-                    return null;
-                });
+                    serverManager.queuePlayerForServerJoin(event.getPlayer(), originalServerName);
+                    serverManager.startServer(originalServer).exceptionally(ex -> {
+                        Optional<ServerConnection> playerCurrentServer = event.getPlayer().getCurrentServer();
+                        if (playerCurrentServer.isEmpty()) {
+                            event.getPlayer().disconnect(Component.text("Failed to start server " + originalServerName).color(NamedTextColor.RED));
+                        } else {
+                            Messenger.send(event.getPlayer(), config.getMessage("failed").orElse(""), originalServerName);
+                        }
+                        return null;
+                    });
+                }
             }
         } catch (InterruptedException | ExecutionException e) {
             logger.error("Error occurred while determining the status of server {}", originalServerName);
