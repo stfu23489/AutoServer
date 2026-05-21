@@ -1,0 +1,117 @@
+# AutoServer Configuration File
+# Author: Artificial-720
+# For issues or suggestions, please submit them at: https://github.com/Artificial-720/AutoServer/issues
+
+# Should AutoServer check for updates?
+checkForUpdates = true
+
+# Time (in minutes) between maintenance task executions.
+# You generally don't need to change this value.
+maintenanceInterval = 5
+
+# Number of requests allowed per user per minute.
+# Limits how frequently a user can initiate a new request.
+startRateLimit = 2
+
+[messages]
+# Prefix added to all messages displayed to the player.
+prefix = "[<green>AutoServer<reset>] "
+
+# Message displayed to the player when they attempt to connect to a server that is currently offline.
+# %serverName% will be replaced with the name of the backend server.
+starting = "<red> %serverName% <reset> is currently offline. Server is starting you will be redirected when ready."
+
+# Message displayed to the player if the server fails to start or cannot be connected to.
+# %serverName% will be replaced with the name of the backend server.
+failed = "<red> Unable to connect you to %serverName%.<reset> Please try again later or contact support if this issue persists."
+
+# Message displayed to the player when the server is ready, indicating that they will be connected shortly.
+# %serverName% will be replaced with the name of the backend server.
+notify = "Server %serverName% is ready you will be connected in 5 seconds..."
+
+# Message shown to users when they exceed the rate limit.
+# %time% will be replaced with the number of seconds remaining.
+startRateLimitExceeded = "Too many requests: You can initiate a new request in %time% seconds."
+
+# Message displayed to the player when they are not whitelisted.
+# %code% will be replaced with the verification code.
+notWhitelisted = "<red>You are not whitelisted!\n\n<yellow>Send this code to our Discord bot:\n<green>!verify %code%"
+
+# Message displayed to the player when they are blacklisted.
+# %reason% will be replaced with the blacklist reason.
+# %expiry% will be replaced with the expiry date or "Never".
+blacklisted = "<red>You are blacklisted!\n<yellow>Reason: <white>%reason%\n<yellow>Expires: <white>%expiry%"
+
+# Define servers here.
+[servers]
+# For each server you want to have managed create a table for it
+# Table name must match server name located in velocity.toml file
+# You would replace "example" with server name from velocity.toml
+#[servers.example]
+# Command to start the server locally.
+#start = ""
+# Command to stop the server locally.
+#stop = ""
+# Specifies whether the server is remote (true) or local (false) (default: false).
+#remote = false
+# Port number on which the remote server listens for the start command (default: 8080).
+#port = 8080
+# Time in seconds to wait before attempting to connect a player. (default: 60)
+# For a remote server, a longer delay is often necessary due to network latency.
+#startupDelay = 60
+# Time in seconds to wait before verifying whether the server has successfully shut down.
+#shutdownDelay = 5
+# Path to the directory where the server runs.
+# If not provided uses same directory as Velocity
+#workingDirectory = ""
+# Controls whether leading and trailing quotes are preserved,
+# with quotes being removed by default on non-Windows systems unless explicitly set to `true`. (default: null)
+#preserveQuotes = false
+# Specifies whether the REMOTE server should use security on message (default: true).
+# Note this requires copying the exact value from Velocity's forwarding.secret to the remote config
+#security = true
+# Duration (in seconds) to wait before automatically shutting down the server.
+# Set to 0 to disable automatically shutting down the server.
+#autoShutdownDelay = 1800
+# Name of a fallback server (must match a server in velocity.toml) to send players to while
+# the main server is starting. The fallback server will be started automatically if offline,
+# and stopped automatically once all queued players have been transferred to the main server.
+# The fallback server will NOT be started if the main server is already online.
+#fallbackServer = "limbo"
+
+
+# Example Configuration for a LOCAL server named "survival".
+[servers.survival]
+# Path to the directory where the server runs.
+workingDirectory = "/home/user/minecraft/survival"
+# Command to start the "survival" server. Notice: have a space in jar file, that is fine just surround in quotes.
+start = "screen -DmS mc-example java -Xmx4G -Xms4G -jar \"server 1.21.jar\" nogui"
+# Command to stop the "survival" server. This example uses screen so we can send a stop command to the server.
+stop = "screen -p 0 -S mc-example -X stuff \"stop\r\""
+# Time in seconds to wait before attempting to connect a player.
+# If your server starts slowly increase this time.
+startupDelay = 60
+# If your server is taking a long time to shut down increase this time.
+shutdownDelay = 5
+# Automatically shut down the survival server if no players are online for 30 minutes.
+autoShutdownDelay = 1800
+
+
+# Example Configuration for a REMOTE server named "creative".
+[servers.creative]
+# No local start and stop commands since it is a remote server.
+remote = true
+# Port the remote server listens on for start command (default: 8080).
+port = 8080
+# Time in seconds to wait before attempting to connect a player.
+# For a remote server probably want a longer delay
+startupDelay = 120
+# Enable security for the connection with this backend server.
+# If not provided the default is true.
+security = true
+
+
+# Configure logging here
+[logging]
+# Logging level: possible values - TRACE, DEBUG, INFO, WARN, ERROR
+level = "INFO"

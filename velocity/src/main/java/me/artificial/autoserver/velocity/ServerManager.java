@@ -384,33 +384,17 @@ public class ServerManager {
             if (serverName.equals(server.getServerInfo().getName())) {
                 if (player.isActive()) {
                     // Notify the player
-                    if (player.getCurrentServer().isPresent()) {
-                        Messenger.send(player, plugin.getConfig().getMessage("notify").orElse(""), serverName);
-                        // Schedule the connection request to run after 5 seconds
-                        plugin.getProxy().getScheduler().buildTask(plugin, () -> {
-                            plugin.internalTransfer(player);
-                            player.createConnectionRequest(server).connect().whenComplete((result, throwable) -> {
-                                if (throwable != null) {
-                                    Messenger.send(player, plugin.getConfig().getMessage("failed").orElse(""), serverName);
-                                    logger.error("Failed to connect player to server {}", throwable.getMessage());
-                                } else {
-                                    logger.info("Player {} successfully moved to server {}", player.getUsername(), serverName);
-                                }
-                                queuePlayers.remove(player);
-                            });
-                        }).delay(5, TimeUnit.SECONDS).schedule();
-                    } else {
-                        // Not connected to a server so want to connect fast
-                        player.createConnectionRequest(server).connect().whenComplete((result, throwable) -> {
-                            if (throwable != null) {
-                                Messenger.send(player, plugin.getConfig().getMessage("failed").orElse(""), serverName);
-                                logger.error("Failed to connect player to server {}", throwable.getMessage());
-                            } else {
-                                logger.info("Player {} successfully moved to server {}", player.getUsername(), serverName);
-                            }
-                            queuePlayers.remove(player);
-                        });
-                    }
+                    Messenger.send(player, plugin.getConfig().getMessage("notify").orElse(""), serverName);
+                    plugin.internalTransfer(player);
+                    player.createConnectionRequest(server).connect().whenComplete((result, throwable) -> {
+                        if (throwable != null) {
+                            Messenger.send(player, plugin.getConfig().getMessage("failed").orElse(""), serverName);
+                            logger.error("Failed to connect player to server {}", throwable.getMessage());
+                        } else {
+                            logger.info("Player {} successfully moved to server {}", player.getUsername(), serverName);
+                        }
+                        queuePlayers.remove(player);
+                    });
 
                 }
             }
