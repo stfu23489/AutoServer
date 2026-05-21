@@ -197,19 +197,32 @@ public class AutoServer {
                     String fallbackName = fallback.getServerInfo().getName();
                     logger.info("Redirecting player {} to fallback server {}", event.getPlayer().getUsername(), fallbackName);
 
-                    // start fallback if offline
+                    // start fallback if offline, wait for it to be ready before sending player
                     serverManager.isServerOnline(fallback).thenAccept(fallbackOnline -> {
                         if (!fallbackOnline) {
                             logger.info("Fallback server {} is offline, starting it...", fallbackName);
-                            serverManager.startServer(fallback).exceptionally(ex -> {
+                            serverManager.startServer(fallback).thenAccept(result -> {
+                                logger.info("Fallback server {} is ready, connecting player {}", fallbackName, event.getPlayer().getUsername());
+                                if (event.getPlayer().isActive()) {
+                                    this.internalTransfer(event.getPlayer());
+                                    event.getPlayer().createConnectionRequest(fallback).connect();
+                                }
+                            }).exceptionally(ex -> {
                                 logger.error("Failed to start fallback server {}: {}", fallbackName, ex.getMessage());
+                                event.getPlayer().disconnect(Component.text("Failed to start fallback server.").color(NamedTextColor.RED));
                                 return null;
                             });
+                        } else {
+                            logger.info("Fallback server {} already online, connecting player {}", fallbackName, event.getPlayer().getUsername());
+                            if (event.getPlayer().isActive()) {
+                                this.internalTransfer(event.getPlayer());
+                                event.getPlayer().createConnectionRequest(fallback).connect();
+                            }
                         }
                     });
 
-                    // send player to fallback
-                    event.setResult(ServerPreConnectEvent.ServerResult.allowed(fallback));
+                    // deny the original event - we handle connection manually above
+                    event.setResult(ServerPreConnectEvent.ServerResult.denied());
                     Messenger.send(event.getPlayer(), config.getMessage("starting").orElse(""), originalServerName);
 
                     // queue player for main server and start it
