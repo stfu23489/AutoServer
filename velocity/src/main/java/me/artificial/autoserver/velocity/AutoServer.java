@@ -216,7 +216,7 @@ public class AutoServer {
                     serverManager.queuePlayerForServerJoin(event.getPlayer(), originalServerName);
                     serverManager.startServer(originalServer).thenAccept(result -> {
                         // stop fallback if no players remain after transfer
-                        proxy.getScheduler().buildTask(plugin, () -> {
+                        proxy.getScheduler().buildTask(this, () -> {
                             if (fallback.getPlayersConnected().isEmpty()) {
                                 logger.info("Fallback server {} is empty after transfer, stopping it.", fallbackName);
                                 serverManager.stopServer(fallback).exceptionally(ex -> {
