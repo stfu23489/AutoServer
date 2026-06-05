@@ -115,6 +115,13 @@ public class ServerManager {
                         return CompletableFuture.completedFuture("Server already stopped");
                     }
 
+                    // Abort if players are still connected
+                    if (!server.getPlayersConnected().isEmpty()) {
+                        logger.info("Aborting stop of {}, {} player(s) still connected", serverName, server.getPlayersConnected().size());
+                        getServerStatus(server).setStatus(ServerStatus.Status.UNKNOWN);
+                        return CompletableFuture.completedFuture("Stop aborted, players online.");
+                    }
+
                     // Finally stop the server using the given strategy
                     return startableStrategy.stop()
                             .thenCompose(result -> {
@@ -243,6 +250,80 @@ public class ServerManager {
 
         ScheduledTask scheduledTask = taskBuilder.schedule();
         shutdownScheduledTask.put(server.getServerInfo().getName(), scheduledTask);
+    }
+
+    /**
+     * Continuously polls a target server until it is online and not full,
+     * starting it if necessary, then transfers the player from limbo.
+     *
+     * @param player       The player waiting in limbo.
+     * @param targetServer The server to transfer the player to when ready.
+     */
+    public void pollAndTransferWhenReady(Player player, RegisteredServer targetServer) {
+        String targetName = targetServer.getServerInfo().getName();
+        logger.info("[limbo-poll] Starting poll loop for player {} targeting {}", player.getUsername(), targetName);
+
+        plugin.getProxy().getScheduler().buildTask(plugin, () -> {
+            // Check player still online
+            if (!player.isActive()) {
+                logger.info("[limbo-poll] Player {} is no longer active, stopping poll", player.getUsername());
+                return;
+            }
+
+            // Check player still in limbo
+            boolean inLimbo = player.getCurrentServer()
+                    .map(sc -> sc.getServerInfo().getName().equals("limbo"))
+                    .orElse(false);
+            if (!inLimbo) {
+                logger.info("[limbo-poll] Player {} is no longer in limbo, stopping poll", player.getUsername());
+                return;
+            }
+
+            logger.debug("[limbo-poll] Polling {} for player {}", targetName, player.getUsername());
+
+            isServerResponsive(targetServer).thenAccept(online -> {
+                if (!online) {
+                    logger.info("[limbo-poll] {} is offline, starting it for player {}", targetName, player.getUsername());
+                    Messenger.send(player, plugin.getConfig().getMessage("starting").orElse(""), targetName);
+                    cancelShutdownServer(targetServer);
+                    // Only start if not already starting
+                    if (!startingServers.contains(targetName)) {
+                        startServer(targetServer).exceptionally(ex -> {
+                            logger.error("[limbo-poll] Failed to start {}: {}", targetName, ex.getMessage());
+                            return null;
+                        });
+                    }
+                    // Reschedule poll — do not double-handle here, startServer will move queued players
+                    scheduleNextPoll(player, targetServer);
+                    return;
+                }
+
+                // Server is online, try to connect
+                cancelShutdownServer(targetServer);
+                Messenger.send(player, plugin.getConfig().getMessage("notify").orElse(""), targetName);
+                plugin.internalTransfer(player);
+                player.createConnectionRequest(targetServer).connect().whenComplete((result, ex) -> {
+                    if (ex != null || !result.isSuccessful()) {
+                        logger.warn("[limbo-poll] Transfer of {} to {} failed, will retry: {}",
+                                player.getUsername(), targetName, ex != null ? ex.getMessage() : result.getReasonComponent());
+                        Messenger.send(player, plugin.getConfig().getMessage("failed").orElse(""), targetName);
+                        // reschedule
+                        scheduleNextPoll(player, targetServer);
+                    } else {
+                        logger.info("[limbo-poll] Player {} successfully transferred to {}", player.getUsername(), targetName);
+                    }
+                });
+            });
+        }).delay(java.time.Duration.ofSeconds(10)).schedule();
+    }
+
+    private void scheduleNextPoll(Player player, RegisteredServer targetServer) {
+        if (!player.isActive()) return;
+        boolean inLimbo = player.getCurrentServer()
+                .map(sc -> sc.getServerInfo().getName().equals("limbo"))
+                .orElse(false);
+        if (!inLimbo) return;
+        pollAndTransferWhenReady(player, targetServer);
     }
 
     public void cancelShutdownServer(RegisteredServer server) {

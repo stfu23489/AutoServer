@@ -1,6 +1,8 @@
 package me.artificial.autoserver.velocity;
 
 import com.velocitypowered.api.proxy.Player;
+import com.velocitypowered.api.proxy.ProxyServer;
+import net.kyori.adventure.text.minimessage.MiniMessage;
 import org.slf4j.Logger;
 
 import java.io.*;
@@ -12,15 +14,17 @@ import java.util.*;
 public class Blacklist {
     private final Path blacklistFile;
     private final Logger logger;
+    private final ProxyServer proxy;
     private final List<BlacklistEntry> entries = new ArrayList<>();
     private WatchService watchService;
     private Thread watchThread;
 
     private static final DateTimeFormatter FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
 
-    public Blacklist(Path dataDirectory, Logger logger) {
+    public Blacklist(Path dataDirectory, Logger logger, ProxyServer proxy) {
         this.blacklistFile = dataDirectory.resolve("blacklist.txt");
         this.logger = logger;
+        this.proxy = proxy;
     }
 
     public static class BlacklistEntry {
@@ -96,6 +100,18 @@ public class Blacklist {
         }
 
         logger.info("Blacklist reloaded: {} entries", entries.size());
+        kickIfBlacklisted();
+    }
+
+    private void kickIfBlacklisted() {
+        for (Player player : proxy.getAllPlayers()) {
+            BlacklistEntry entry = getBlacklistEntry(player);
+            if (entry != null) {
+                player.disconnect(MiniMessage.miniMessage().deserialize(
+                    "<red><bold>You are blacklisted!</bold></red>\n<white>Reason: " + entry.reason + "</white>"));
+                logger.info("Kicked blacklisted player {} on reload: reason={}", player.getUsername(), entry.reason);
+            }
+        }
     }
 
     public synchronized BlacklistEntry getBlacklistEntry(Player player) {

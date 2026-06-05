@@ -4,6 +4,7 @@ import com.google.inject.Inject;
 import com.velocitypowered.api.command.CommandManager;
 import com.velocitypowered.api.command.CommandMeta;
 import com.velocitypowered.api.event.Subscribe;
+import com.velocitypowered.api.event.connection.LoginEvent;
 import com.velocitypowered.api.event.connection.DisconnectEvent;
 import com.velocitypowered.api.event.player.KickedFromServerEvent;
 import com.velocitypowered.api.event.player.ServerPostConnectEvent;
@@ -55,7 +56,7 @@ public class AutoServer {
         this.logger = new AutoServerLogger(this, logger);
         this.pluginContainer = pluginContainer;
         this.whitelist = new Whitelist(dataDirectory, logger);
-        this.blacklist = new Blacklist(dataDirectory, logger);
+        this.blacklist = new Blacklist(dataDirectory, logger, proxy);
     }
 
     @Subscribe
@@ -125,6 +126,20 @@ public class AutoServer {
     }
 
     @Subscribe
+    public void onLogin(LoginEvent event) {
+        Blacklist.BlacklistEntry entry = blacklist.getBlacklistEntry(event.getPlayer());
+        if (entry != null) {
+            String rawMessage = config.getBlacklistedMessage(entry.reason, entry.expiryString());
+            event.setResult(LoginEvent.ComponentResult.denied(net.kyori.adventure.text.minimessage.MiniMessage.miniMessage().deserialize(rawMessage)));
+            logger.info("Denied login for blacklisted player {} ({}): reason={} expiry={}",
+                event.getPlayer().getUsername(),
+                event.getPlayer().getRemoteAddress().getAddress().getHostAddress(),
+                entry.reason,
+                entry.expiryString());
+        }
+    }
+
+    @Subscribe
     public void onServerPreConnect(ServerPreConnectEvent event) {
         if (internalTransfers.remove(event.getPlayer().getUniqueId())) {
             return; // This was a plugin initiated request skipping handling
@@ -185,23 +200,31 @@ public class AutoServer {
             } else {
                 // server not online need to start it
                 logger.info("Server {}{}{} is not online attempting to start server", AnsiColors.RED, originalServerName, AnsiColors.RESET);
-                event.setResult(ServerPreConnectEvent.ServerResult.denied());
 
-                if (previousServer != null) {
+                // If player is connecting fresh (no previous server), redirect to limbo and poll.
+                // But only if the target is NOT limbo itself — avoids an infinite redirect loop.
+                Optional<RegisteredServer> limboServer = proxy.getServer("limbo");
+                if (limboServer.isPresent() && previousServer == null && !originalServerName.equals("limbo")) {
+                    event.setResult(ServerPreConnectEvent.ServerResult.allowed(limboServer.get()));
                     Messenger.send(event.getPlayer(), config.getMessage("starting").orElse(""), originalServerName);
-                }
-                serverManager.queuePlayerForServerJoin(event.getPlayer(), originalServerName);
-                serverManager.startServer(originalServer).exceptionally(ex -> {
-                    // Check if the is already connected to a server
-                    Optional<ServerConnection> playerCurrentServer = event.getPlayer().getCurrentServer();
-                    if (playerCurrentServer.isEmpty()) {
-                        event.getPlayer().disconnect(Component.text("Failed to start server " + originalServerName).color(NamedTextColor.RED));
-                    } else {
-                        // send fail message
-                        Messenger.send(event.getPlayer(), config.getMessage("failed").orElse(""), originalServerName);
+                    serverManager.pollAndTransferWhenReady(event.getPlayer(), originalServer);
+                } else {
+                    event.setResult(ServerPreConnectEvent.ServerResult.denied());
+
+                    if (previousServer != null) {
+                        Messenger.send(event.getPlayer(), config.getMessage("starting").orElse(""), originalServerName);
                     }
-                    return null;
-                });
+                    serverManager.queuePlayerForServerJoin(event.getPlayer(), originalServerName);
+                    serverManager.startServer(originalServer).exceptionally(ex -> {
+                        Optional<ServerConnection> playerCurrentServer = event.getPlayer().getCurrentServer();
+                        if (playerCurrentServer.isEmpty()) {
+                            event.getPlayer().disconnect(Component.text("Failed to start server " + originalServerName).color(NamedTextColor.RED));
+                        } else {
+                            Messenger.send(event.getPlayer(), config.getMessage("failed").orElse(""), originalServerName);
+                        }
+                        return null;
+                    });
+                }
             }
         } catch (InterruptedException | ExecutionException e) {
             logger.error("Error occurred while determining the status of server {}", originalServerName);
@@ -261,6 +284,13 @@ public class AutoServer {
 
         if (server.getPlayersConnected().isEmpty()) {
             serverManager.scheduleShutdownServer(server);
+        }
+
+        // If kicked from a managed server (e.g. paper closed), redirect to limbo and poll to reconnect
+        Optional<RegisteredServer> limboServer = proxy.getServer("limbo");
+        if (limboServer.isPresent() && !kickedFrom.equals("limbo")) {
+            event.setResult(KickedFromServerEvent.RedirectPlayer.create(limboServer.get()));
+            serverManager.pollAndTransferWhenReady(player, server);
         }
     }
 
